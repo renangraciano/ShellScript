@@ -1,5 +1,5 @@
 #!/bin/bash
-#Script de Instalação, Upgrade, Bundle exec do Redmine 2.0
+#Script for install, upgrade and bundle new or existent installations of Redmine APP.
 #Author : Renan Souza
 #Contributors : Elliann Marks, Luciano Romao
 #Data : 22/08/2019
@@ -9,15 +9,10 @@
 
 #Changelog
 #19/08/2019
-#novas funcionalidades
-#Atualiza instalação existente para nova versão c/ backup incluido
-#Faz uma nova instalação e faz backup do path informado
-#Verifica uma instalação e Faz o Bundle se for valida
-
-#verifica se é uma instalação valida
-#função atualiza
-#função new install
-#função rakebundle
+#New Updates
+#NEW this option installs the last version supported, bundle and register a passenger app
+#Update old versions (<4.0.4) to the last version (4.0.4) this option includes backup, new install, and sync data.
+#Bundle bundle a new or existent installation
 
 #Colors
 VERDE="\033[32;1m"
@@ -90,7 +85,7 @@ cd ${HomeDir}
     '2'|'3')
     OldRedmineDir=$(find ${WorkDir} -maxdepth 3 -type f -name 'database.yml' | sort -n | cut -d/ -f5)
     RedmineDir="${WorkDir}/${OldRedmineDir}"
-    OldRedmineVersion=$(head -n10 ${WorkDir}/${OldRedmineDir}/doc/CHANGELOG| cut -d' ' -f3|grep ^v|tr -d 'v' 2&>1 /dev/null)
+    OldRedmineVersion=$(head -n10 ${WorkDir}/${OldRedmineDir}/doc/CHANGELOG| cut -d' ' -f3|grep ^v|tr -d 'v')
     databaseConfiguration="${RedmineDir}/config/database.yml"
     BackupDir="${WorkDir}/backup"
     ;;
@@ -133,15 +128,21 @@ _domainCheck(){
 }
 
 _createPassengerApp(){
+    SubdomainApp="redminer"
+    VerifyApp=$(cpapi2 --user="${valueUser}" SubDomain listsubdomains regex="${SubdomainApp}.${valueDomain}"|grep -w ${SubdomainApp})
+    if [[ -z $VerifyApp ]]
+    then
     echo -e "${VERDE}[INFO] :: Registering application [Executing]${RESETCOR}"
     sleep 1
-    cpapi2 --user=${valueUser} SubDomain delsubdomain domain="redmine.${valueDomain}" 2&>1 /dev/null
-    cpapi2 --user=${valueUser} SubDomain addsubdomain domain=redmine rootdomain=${valueDomain} dir="${RedmineDir}" disallowdot=1 2&>1 /dev/null
-    uapi --user=${valueUser} PassengerApps unregister_application name="redmine" 2&>1 /dev/null
-    uapi --user=${valueUser} PassengerApps register_application name="redmine" path="${RedmineDir}" domain="redmine.${valueDomain}" deployment_mode="production" 2&>1 /dev/null    
-    echo -e "${VERDE}[INFO] :: Registering application - [OK]\n Check app on => redmine.${valueDomain}${RESETCOR}"
+    cpapi2 --user=${valueUser} SubDomain addsubdomain domain=${SubdomainApp} rootdomain=${valueDomain} dir="${RedmineDir}" disallowdot=1 2&>1 /dev/null
+    uapi --user=${valueUser} PassengerApps register_application name="RedMiner" path="${RedmineDir}" domain="${SubdomainApp}.${valueDomain}" deployment_mode="production" 2&>1 /dev/null    
+    echo -e "${VERDE}[INFO] :: Registering application - [OK]\n Check app on => ${SubdomainApp}.${valueDomain}${RESETCOR}"
     sleep 1
-}
+    else
+    echo -e "${VERMELHO}[ERROR] :: Subdomain Already Exists, Register the path manually in the application.${RESETCOR}"
+    exit 0
+    fi
+    }
 
 _usage() {
     echo -e "${VERDE}
@@ -191,7 +192,7 @@ _checkEmailYAML() {
 _createBackup() {
     if [[ -z ${RedmineDir} ]] || [[ -z $db ]]
     then
-    echo -e "${VERMELHO}[ERRO] :: Old RedMine Directory and DB not found on ${WorkDir}, contact an L2 or L3! ${RESETCOR}"
+    echo -e "${VERMELHO}[ERROR] :: Old RedMine Directory and DB not found on ${WorkDir}, contact an L2 or L3! ${RESETCOR}"
     else
     
         if [[ ! -d ${BackupDir} ]]
@@ -223,7 +224,7 @@ _syncFiles() {
 
     if [[ -f "$WorkDir/redmineOLD/config/database.yml" ]] 
     then
-    su $valueUser -c "cp -p $WorkDir/redmineOLD/config/database.yml $RedmineDir/config/ 1> /dev/null 2> $logExec"
+    su $valueUser -c "mv $WorkDir/redmineOLD/config/database.yml $RedmineDir/config/ 1> /dev/null 2> $logExec"
     _checkExecution $?
     #not backup mysql in different versions
     mysql $db < "${WorkDir}/backup/$db.sql"
@@ -232,7 +233,7 @@ _syncFiles() {
     if [[ -d "$WorkDir/redmineOLD/vendor/plugins/" ]] || [[ -d "$WorkDir/redmineOLD/files/" ]]
     then
     su $valueUser -c "rsync -avzr $WorkDir/redmineOLD/vendor/plugins/ $RedmineDir/vendor/plugins/ 1> /dev/null 2> $logExec"    
-    su $valueUser -c "rsync -avzr $WorkDir/redmineOLD/files/ $RedmineDir/files/ 1> /dev/null 2> $logExec" 
+    su $valueUser -c "rsync -avzr $WorkDir/redmineOLD/files/ $RedmineDir/files/ 1> /dev/null 2> $logExec"
     fi
     echo -e "${VERDE}[INFO] :: Synchronizing files [OK]${RESETCOR}"
 }
@@ -334,7 +335,7 @@ then
         ;;
         '3')
         #Only bundle supported version 4.0.4
-        if [[  "$OldRedmineVersion" == "$VERSION" ]] || [[ -f "${RedmineDir}/config/skip" ]]
+        if [[  "$OldRedmineVersion" == "$VERSION" ]]
         then
             _bundleInstall
             _checkExecution $?
@@ -353,38 +354,40 @@ fi
     }
 
 _newInstall(){    
-    #create path if not exists
-    if [[ ! -d "${WorkDir}" ]] && [[ ${valueType} == "1" ]] || [[ -d "${WorkDir}" ]] && [[ ${valueType} == "2" ]]
-    then
-    echo -e "${VERDE}[INFO] :: Executing New Install [Executing]${RESETCOR}"
-    sleep 1
-    su ${valueUser} -c "mkdir -p ${WorkDir:-VAZIO} 1> /dev/null 2> $logExec"
-    _checkExecution $?
-    su ${valueUser} -c "cd ${WorkDir} && wget $PACKAGE 1> /dev/null 2> $logExec"
-    su ${valueUser} -c "cd ${WorkDir} && tar -xzf redmine-${VERSION}.tar.gz 1> /dev/null 2> $logExec"
-    su ${valueUser} -c "cd ${WorkDir} && mv redmine{-${VERSION},_${data}}"
-    
-    #edit database.yml
-    if [[ ${valueType} == '1' ]] 
-    then
-    su ${valueUser} -c "cd ${RedmineDir} && mv config/database.yml{.example,}"
-    _createDB
-    _checkExecution $?
-    cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep database|cut -f2 -d":"| tr -d ' '`@${db}@g" config/database.yml
-    cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep username|cut -f2 -d":"|tr -d ' '`@${db_user}@g" config/database.yml
-    cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep password|cut -f2 -d":"| tr -d ' '`@\"${db_pass}\"@g" config/database.yml
-    _bundleInstall 
-    _checkExecution $?
-    _bundleExec
-    _checkExecution $?
-    _createPassengerApp
-    fi
-    
-    else
-    echo -e "${AMARELO}[WARN] :: Directory already exists!${RESETCOR}"
-    echo -e "${VERDE}[INFO] :: Invalid instalation type, PATH is busy, invoke upgrade option!${RESETCOR}"
-    exit 0
-    fi
+    case ${valueType} in
+    '1')
+        if [[ ! -d "${WorkDir}" ]]
+        then
+        echo -e "${VERDE}[INFO] :: Executing New Install [Executing]${RESETCOR}"
+        sleep 1
+        su ${valueUser} -c "mkdir -p ${WorkDir:-VAZIO} 1> /dev/null 2> $logExec"
+        _checkExecution $?
+        su ${valueUser} -c "cd ${WorkDir} && wget $PACKAGE 1> /dev/null 2> $logExec"
+        su ${valueUser} -c "cd ${WorkDir} && tar -xzf redmine-${VERSION}.tar.gz 1> /dev/null 2> $logExec"
+        su ${valueUser} -c "cd ${WorkDir} && mv redmine{-${VERSION},_${data}}"
+        su ${valueUser} -c "cd ${RedmineDir} && mv config/database.yml{.example,}"
+        _createDB
+        _checkExecution $?
+        cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep database|cut -f2 -d":"| tr -d ' '`@${db}@g" config/database.yml
+        cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep username|cut -f2 -d":"|tr -d ' '`@${db_user}@g" config/database.yml
+        cd ${RedmineDir} && sed -i "s@`cat config/database.yml|grep -v ^#production|grep -A8 ^production|grep password|cut -f2 -d":"| tr -d ' '`@\"${db_pass}\"@g" config/database.yml
+        _bundleInstall 
+        _checkExecution $?
+        _bundleExec
+        _checkExecution $?
+        _createPassengerApp
+        else
+        echo -e "${AMARELO}[WARN] :: Directory already exists!${RESETCOR}"
+        echo -e "${VERDE}[INFO] :: Invalid instalation type, PATH is busy, invoke upgrade option!${RESETCOR}"
+        exit 0
+        fi
+    ;;
+    '2')
+        su ${valueUser} -c "cd ${WorkDir} && wget $PACKAGE 1> /dev/null 2> $logExec"
+        su ${valueUser} -c "cd ${WorkDir} && tar -xzf redmine-${VERSION}.tar.gz 1> /dev/null 2> $logExec"
+        su ${valueUser} -c "cd ${WorkDir} && mv redmine{-${VERSION},_${data}}"
+    ;;
+    esac
 }
 
 _checkInstall(){
