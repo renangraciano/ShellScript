@@ -134,8 +134,8 @@ _createPassengerApp(){
     then
     echo -e "${VERDE}[INFO] :: Registering application [Executing]${RESETCOR}"
     sleep 1
-    cpapi2 --user=${valueUser} SubDomain addsubdomain domain=${SubdomainApp} rootdomain=${valueDomain} dir="${RedmineDir}" disallowdot=1 2&>1 /dev/null
-    uapi --user=${valueUser} PassengerApps register_application name="RedMiner" path="${RedmineDir}" domain="${SubdomainApp}.${valueDomain}" deployment_mode="production" 2&>1 /dev/null    
+    cpapi2 --user=${valueUser} SubDomain addsubdomain domain=${SubdomainApp} rootdomain=${valueDomain} dir="${RedmineDir##${HomeDir}}" disallowdot=1 2&>1 /dev/null
+    uapi --user=${valueUser} PassengerApps register_application name="RedMiner" path="${RedmineDir##${HomeDir}}" domain="${SubdomainApp}.${valueDomain}" deployment_mode="production" 2&>1 /dev/null    
     echo -e "${VERDE}[INFO] :: Registering application - [OK]\n Check app on => ${SubdomainApp}.${valueDomain}${RESETCOR}"
     sleep 1
     else
@@ -269,7 +269,7 @@ _bundleExec() {
 _createDB(){
     #new    
     checkdb=$(mysqlshow|grep -w $db)
-    checkdb_user=$(whmapi1 list_database_users| grep -w $db_user)
+    checkdb_user=$(whmapi1 list_database_users 2> /dev/null| grep -w $db_user)
 
     if [[ -z $checkdb ]]
     then
